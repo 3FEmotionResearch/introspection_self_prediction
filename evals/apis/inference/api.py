@@ -11,6 +11,7 @@ import numpy as np
 from evals.apis.inference.anthropic_api import ANTHROPIC_MODELS, AnthropicChatModel
 from evals.apis.inference.fireworks_api import FireworksModel
 from evals.apis.inference.gemini_api import GeminiModel
+from evals.apis.inference.huggingface import HuggingFaceModel
 from evals.apis.inference.model import InferenceAPIModel
 from evals.apis.inference.model_test_api import TestModel
 from evals.apis.inference.openai.chat import OpenAIChatModel
@@ -96,7 +97,7 @@ class InferenceAPI:
 
         self._gemini_chat = GeminiModel(prompt_history_dir=self.prompt_history_dir)
 
-        # self._huggingface_chat = HuggingFaceModel(prompt_history_dir=self.prompt_history_dir)
+        self._huggingface_chat = HuggingFaceModel(prompt_history_dir=self.prompt_history_dir)
 
         self._fireworks_chat = FireworksModel() if "FIREWORKS_API_KEY" in secrets else None
         self._test_chat = TestModel()
@@ -122,8 +123,8 @@ class InferenceAPI:
         elif model_id == "test":
             return self._test_chat
         else:
-            raise ValueError(f"Unknown model_id: {model_id}")
-            # return self._huggingface_chat
+            # For all other models (like llama), use HuggingFace inference
+            return self._huggingface_chat
 
     def filter_responses(
         self,
@@ -250,8 +251,8 @@ class InferenceAPI:
                 )
             )
         else:
-            # if model_class != self._huggingface_chat:
-            kwargs.pop("cais_path", None)
+            if model_class != self._huggingface_chat:
+                kwargs.pop("cais_path", None)
             candidate_responses = await model_class(
                 model_ids,
                 prompt,

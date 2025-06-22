@@ -84,6 +84,7 @@ def setup_environment(
     setup_logging(logging_level)
     secrets = load_secrets(Path(__file__).parent.parent / "SECRETS")
     openai.api_key = secrets[openai_tag]
+    os.environ["OPENAI_API_KEY"] = secrets[openai_tag]
     os.environ["ANTHROPIC_API_KEY"] = secrets[anthropic_tag]
     os.environ["RUNPOD_API_KEY"] = secrets.get("RUNPOD_API_KEY", "")
     os.environ["FIREWORKS_API_KEY"] = secrets.get("FIREWORKS_API_KEY", "")

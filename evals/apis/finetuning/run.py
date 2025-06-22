@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 import openai
 from google.cloud import storage
-from openai.error import APIConnectionError, RateLimitError
+from openai import APIConnectionError, RateLimitError
 from pydantic import BaseModel
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 from vertexai.preview.tuning import sft

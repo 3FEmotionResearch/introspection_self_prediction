@@ -1,0 +1,8 @@
+
+model: llama-3-8b-instruct_finetuned_
+cais_path: /home/paperspace/PublicRepos/25-06-22-introspection_self_prediction/exp/finetuning/tiny_test/llama-3-8b-instruct/llama-3-8b-instruct_finetuned__merged
+temperature: 0.0
+top_p: 1.0
+max_tokens: null
+num_candidates_per_completion: 1
+insufficient_valids_behaviour: "error"

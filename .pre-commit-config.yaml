@@ -12,9 +12,9 @@ repos:
       - id: check-merge-conflict
       - id: debug-statements
       - id: no-commit-to-branch
-        args: ['--branch=main']
+        args: ['--branch=ignore-main']
         stages:
-          - commit
+          - pre-commit
 
   - repo: https://github.com/psf/black
     rev: 23.3.0

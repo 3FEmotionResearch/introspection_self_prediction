@@ -1,24 +1,24 @@
 # core
-accelerate==0.28.0
+accelerate
 anthropic
 datasets
 fire
 fireworks-ai
 hydra-core
-openai==0.28.0
+openai
 pandas
 pydantic
 tenacity
 termcolor
 tiktoken
-torch==2.2.2
-transformers==4.39.3
+torch
+transformers
 tqdm
 wandb
 nltk
 scipy
-vertexai==1.48.0
-aiolimiter==1.1.0
+vertexai
+aiolimiter
 
 # counterfactual evals
 grugstream
