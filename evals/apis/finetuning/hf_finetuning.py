@@ -1,51 +1,108 @@
 import logging
 import os
+from dataclasses import dataclass, field
 
 import torch
 from datasets import load_dataset
+
+# REWRITTEN: Import PEFT/LoRA config and SFTTrainer from their correct locations
+from peft import LoraConfig
 from rich.logging import RichHandler
-from transformers import AutoTokenizer, TrainingArguments
-from trl import (
-    DataCollatorForCompletionOnlyLM,
-    ModelConfig,
-    RichProgressCallback,
-    SFTTrainer,
-    get_peft_config,
+
+# REWRITTEN: Import the modern, standard Hugging Face argument parser and other necessary classes
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    HfArgumentParser,
+    TrainingArguments,
 )
-from trl.commands.cli_utils import SftScriptArguments, TrlParser, init_zero_verbose
+from trl import DataCollatorForCompletionOnlyLM, SFTTrainer
+
+# REWRITTEN: Import the callback from its new, correct location within trl
+from trl.trainer.callbacks import RichProgressCallback
+
+
+# REWRITTEN: Define a custom dataclass for script-specific arguments.
+# This replaces the old, removed `SftScriptArguments` and parts of `ModelConfig`.
+@dataclass
+class ScriptArguments:
+    """
+    Arguments for this finetuning script.
+    """
+
+    model_name_or_path: str = field(metadata={"help": "The model checkpoint for starting the finetuning."})
+    dataset_name: str = field(metadata={"help": "The path to the dataset directory containing train/val .jsonl files."})
+    use_peft: bool = field(default=True, metadata={"help": "Whether to use PEFT for LoRA finetuning."})
+    lora_r: int = field(default=16, metadata={"help": "Lora attention dimension."})
+    lora_alpha: int = field(default=32, metadata={"help": "The alpha parameter for Lora scaling."})
+    lora_dropout: float = field(default=0.05, metadata={"help": "The dropout probability for Lora layers."})
 
 
 def run_hf_finetuning(
-    model_name: str,
-    train_data_path: str,
-    val_data_path: str,
-    training_args: TrainingArguments | None = None,
-    model_config: ModelConfig | None = None,
-) -> str:
+    script_args: ScriptArguments,
+    training_args: TrainingArguments,
+):
+    """
+    Main function to run the Hugging Face finetuning process.
+    """
     my_rank = torch.distributed.get_rank() if torch.distributed.is_initialized() else 0
     print(f"Hi, I'm the hf_finetuning.py script, running on node {os.uname().nodename} with rank {my_rank}.")
-    dataset = load_dataset("json", data_files={"train": train_data_path, "validation": val_data_path})
-    training_args.disable_tqdm = True
-    training_args.push_to_hub = False
-    tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
-    if "llama-3" in model_name.lower():
+
+    # --- 1. Load Model and Tokenizer ---
+    quantization_config = BitsAndBytesConfig(
+        load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16
+    )
+
+    model = AutoModelForCausalLM.from_pretrained(
+        script_args.model_name_or_path,
+        quantization_config=quantization_config,
+    )
+    tokenizer = AutoTokenizer.from_pretrained(script_args.model_name_or_path, use_fast=True)
+
+    # --- 2. Configure Tokenizer and Response Template for Llama models ---
+    if "llama-3" in script_args.model_name_or_path.lower():
         tokenizer.pad_token = tokenizer.eos_token
+        # This is the template SFTTrainer will use to find the assistant's response
         response_template = "<|start_header_id|>assistant<|end_header_id|>\n\n"
-    else:  # llama 2
-        tokenizer.pad_token = tokenizer.unk_token
+    else:  # Assuming Llama-2 or other models
+        tokenizer.pad_token = tokenizer.unk_token if tokenizer.unk_token else tokenizer.eos_token
         response_template = "[/INST]"
+
+    # --- 3. Load Dataset ---
+    train_path = os.path.join(script_args.dataset_name, "train_dataset.jsonl")
+    val_path = os.path.join(script_args.dataset_name, "val_dataset.jsonl")
+    dataset = load_dataset("json", data_files={"train": train_path, "validation": val_path})
+
     collator = DataCollatorForCompletionOnlyLM(response_template, tokenizer=tokenizer)
+
+    # --- 4. Configure PEFT (LoRA) ---
+    peft_config = None
+    if script_args.use_peft:
+        peft_config = LoraConfig(
+            r=script_args.lora_r,
+            lora_alpha=script_args.lora_alpha,
+            lora_dropout=script_args.lora_dropout,
+            bias="none",
+            task_type="CAUSAL_LM",
+            target_modules="all-linear",  # A common default for new models
+        )
+
+    # --- 5. Initialize Trainer ---
+    # REWRITTEN: SFTTrainer now takes a different set of arguments.
+    # We pass the loaded model object directly.
+    # We pass the `peft_config` object.
     trainer = SFTTrainer(
-        model=model_name,
-        tokenizer=tokenizer,
+        model=model,
         args=training_args,
         train_dataset=dataset["train"],
         eval_dataset=dataset["validation"],
-        callbacks=[RichProgressCallback],
+        peft_config=peft_config,
         data_collator=collator,
-        dataset_kwargs=dict(add_special_tokens=False),
-        peft_config=get_peft_config(model_config),
+        callbacks=[RichProgressCallback()],
     )
+
+    # --- 6. Train and Save ---
     trainer.train()
     print(f"Training completed! Saving the model to {training_args.output_dir}")
     trainer.save_model(training_args.output_dir)
@@ -53,16 +110,21 @@ def run_hf_finetuning(
 
 
 if __name__ == "__main__":
-    init_zero_verbose()
     logging.basicConfig(format="%(message)s", datefmt="[%X]", handlers=[RichHandler()], level=logging.INFO)
-    parser = TrlParser((SftScriptArguments, TrainingArguments, ModelConfig))
-    args, training_args, model_config = parser.parse_args_and_config()
+
+    # REWRITTEN: This is the new, standard way to parse arguments using HfArgumentParser.
+    # It reads arguments from both the command line and the --config YAML file.
+    parser = HfArgumentParser([ScriptArguments, TrainingArguments])
+    script_args, training_args, _ = parser.parse_args_into_dataclasses(return_remaining_strings=True)
+
+    # Disable tqdm for cleaner logs since we are using RichProgressCallback
+    training_args.disable_tqdm = True
+    training_args.bf16 = True
+
+    # Call the main function with the parsed arguments
     run_hf_finetuning(
-        model_name=model_config.model_name_or_path,
-        train_data_path=args.dataset_name + "/train_dataset.jsonl",
-        val_data_path=args.dataset_name + "/val_dataset.jsonl",
+        script_args=script_args,
         training_args=training_args,
-        model_config=model_config,
     )
 
 """

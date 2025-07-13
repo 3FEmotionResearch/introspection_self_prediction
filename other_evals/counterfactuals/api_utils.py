@@ -8,7 +8,6 @@ from typing import NoReturn, Self, Sequence, Type, TypeVar, Union
 import anthropic
 import anyio
 import openai
-import openai.error
 from pydantic import BaseModel
 from slist import Slist
 from tenacity import retry as async_retry, stop_after_attempt, wait_random
@@ -380,7 +379,7 @@ class FireworksCaller(ModelCallerV2):
             assert len(completions) == 1, f"Expected exactly one completion, got {len(completions)}"
             assert completions[0] != "", f"Expected non-empty completion, got {completions[0]}"
             return InferenceResponse(raw_responses=completions, error=None)
-        except openai.error.OpenAIError as e:
+        except openai.OpenAIError as e:
             if "Failed to create completion as the model generated invalid Unicode output." in str(e.user_message):
                 return InferenceResponse(raw_responses=[], error=e.user_message)
             else:
@@ -398,7 +397,7 @@ class FireworksCaller(ModelCallerV2):
 
 class OpenAICaller(ModelCallerV2):
     @async_retry(
-        retry=retry_if_exception_type((openai.error.RateLimitError, openai.error.APIError, openai.error.APIConnectionError, openai.error.ServiceUnavailableError)), wait=wait_fixed(5)
+        retry=retry_if_exception_type((openai.RateLimitError, openai.APIError, openai.APIConnectionError, openai.InternalServerError)), wait=wait_fixed(5)
     )
     async def call_with_log_probs(
         self,
@@ -428,7 +427,7 @@ class OpenAICaller(ModelCallerV2):
             
 
     async_retry(
-        retry=retry_if_exception_type((openai.error.RateLimitError, openai.error.APIError, openai.error.APIConnectionError)), wait=wait_fixed(5)
+        retry=retry_if_exception_type((openai.RateLimitError, openai.APIError, openai.APIConnectionError)), wait=wait_fixed(5)
     )
     async def call(
         self,
@@ -454,7 +453,7 @@ class OpenAICaller(ModelCallerV2):
             choices = result["choices"]  # type: ignore
             completions = [choice["message"]["content"] for choice in choices]
             return InferenceResponse(raw_responses=completions, error=None)
-        except openai.error.OpenAIError as e:
+        except openai.OpenAIError as e:
             if "Failed to create completion as the model generated invalid Unicode output." in str(e.user_message):
                 return InferenceResponse(raw_responses=[], error=e.user_message)
             else:
